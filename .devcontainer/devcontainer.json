@@ -1,0 +1,8 @@
+{
+  "name": "Agentic Choreography Dev",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "runArgs": ["--network=host","--privileged"],
+  "extensions": ["ms-python.python","ms-azuretools.vscode-docker","ms-kubernetes-tools.vscode-kubernetes-tools","redhat.vscode-yaml","eamodio.gitlens"],
+  "forwardPorts": [5000, 7474, 7687, 6000]
+}

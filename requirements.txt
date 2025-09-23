@@ -1,0 +1,6 @@
+flask
+neo4j
+langgraph
+faiss-cpu
+numpy
+prometheus-client

@@ -1,0 +1,1 @@
+neo4j:\n  image: neo4j:5.14\n  auth: neo4j/test\n
