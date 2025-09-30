@@ -1,0 +1,136 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww25500\viewh14800\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs72 \cf0 neo4j_connector.py \'97 Explanation and Usage\
+\
+High-level summary\
+- Purpose: a Neo4j data-access layer used by the Agentic Engine to store workflows, execution traces, decisions and simple learned edges (feedback).\
+- Main surface: class `Neo4jConnector` with methods to log events, load workflows, save traces/decisions, resolve decisions, fetch pending decision queue (with policy auto-approval), and update learned edges.\
+- There is a runnable example at the bottom that demonstrates typical calls (load_workflow, save_execution_trace, save_decision, get_decision_queue, resolve_decision, close).\
+\
+Key pieces and behavior (method-by-method)\
+- __init__(self, uri, user, password, policy_file)\
+  - Creates the Neo4j driver via `GraphDatabase.driver(uri, auth=(user,password))`.\
+  - Stores `policy_file` path and calls `reload_policy()`.\
+  - Important: driver creation happens immediately \'97 if Neo4j is unreachable this will raise at init time.\
+\
+- close(self)\
+  - Calls `self.driver.close()` to gracefully close connections.\
+\
+- log_event(self, event_type, message, metadata=None)\
+  - Logs to Python logger and writes an `Event` node to Neo4j.\
+  - Cypher uses `apoc.create.uuid()` to create an id \'97 requires APOC plugin installed in Neo4j.\
+  - Stores metadata as JSON string (via json.dumps).\
+  - Uses `timestamp: datetime()` (server-side Neo4j datetime).\
+\
+- reload_policy(self)\
+  - Loads YAML policy file via `yaml.safe_load` and assigns to `self.policy`.\
+  - Emits a `policy` event via `log_event`.\
+  - If the file is missing or invalid, the current code will raise (no try/except).\
+\
+- load_workflow(self, workflow_id)\
+  - Cypher: matches `Workflow \{id:$workflow_id\}` and its Agents, plus `[:NEXT]` relationships.\
+  - Returns a dict mapping agent_id -> \{ name, type, next: [ \{target, probability, condition\} ] \}.\
+  - Logs a `workflow` event with the agent list.\
+\
+- save_execution_trace(self, trace_id, workflow_id, agent_id, status, details)\
+  - MERGE on `ExecutionTrace \{id:$trace_id\}`, sets fields (workflow_id, agent_id, status, details JSON, timestamp).\
+  - `details` are stored as JSON string.\
+  - Logs a `trace` event.\
+\
+- save_decision(self, decision_id, agent, step, recommendation, tools, stats, explanations, severity, status="pending")\
+  - MERGE on `Decision \{id:$id\}`, sets multiple properties including JSON-stringified `tools`, `stats`, `explanations`, severity and status, created_at=datetime().\
+  - Logs a `decision` event describing the saved decision.\
+\
+- resolve_decision(self, decision_id, choice, status="approved", resolved_by="admin")\
+  - MATCH and SETs status, choice, resolved_by and resolved_at=datetime().\
+  - Logs a `decision` event indicating resolution.\
+\
+- get_decision_queue(self, limit=50, severity=None, auto_apply_policy=True)\
+  - Fetches pending `Decision` nodes (optionally filtered by severity) and returns a list of dicts.\
+  - For each returned row it expects `tools`, `stats`, `explanations` to be JSON strings and runs json.loads on them.\
+  - If `auto_apply_policy` is True and the policy indicates `auto_approve` for the decision's severity, it calls `resolve_decision(...)` to auto-approve and logs the auto-approval; such decisions are skipped from the returned queue.\
+  - Important: created_at returned directly from the DB \'97 currently not converted to a serializable ISO string.\
+\
+- add_fallback_edge(self, from_agent, to_agent, similarity_score)\
+  - MERGE an `a)-[n:NEXT]->(b)` relationship and sets/updates `n.probability` and tracking fields (learned, uses).\
+  - Logs a `feedback` event.\
+\
+- decay_edges(self, decay_rate=0.05)\
+  - Multiplies `n.probability` by `(1 - decay_rate)` for relationships marked `learned = true`.\
+  - Logs a `feedback` event.\
+\
+- update_edge_feedback(self, from_agent, to_agent, success=True, reinforce=0.1, decay=0.1)\
+  - If success: increases n.probability by `reinforce`.\
+  - If failure: multiplies n.probability by `(1 - decay)`.\
+  - Logs a `feedback` event.\
+\
+- Example usage at bottom\
+  - Creates a connector, loads a workflow, saves a trace, saves a decision, fetches queue(s), optionally resolves decisions, closes connector.\
+\
+External requirements and environment\
+- Python package: `neo4j` (official Neo4j Python driver).\
+- Neo4j server: reachable at the Bolt URI you pass (default in file: bolt://localhost:7687) with the given credentials.\
+- APOC plugin: used by `apoc.create.uuid()` \'97 APOC must be installed and allowed to run for that to work.\
+- YAML policy file: `policy_file` default uses path "agentic_engine/config/severity_policy.yaml" \'97 the file must exist and be valid YAML (or pass an alternate path to `Neo4jConnector(policy_file=...)`).\
+\
+Common failure modes and edge cases\
+- Missing Python driver or missing package: import or driver creation fails (ModuleNotFoundError or driver connection error).\
+- Missing or unreadable policy file: `reload_policy()` will raise FileNotFoundError or YAML parse error.\
+- APOC missing: `apoc.create.uuid()` causes Cypher error when creating events.\
+- Null or malformed DB fields: `json.loads(r["tools"])` etc. will raise if stored value is NULL or not JSON; code assumes strings exist.\
+- Datetime serialization: returned `created_at` and other datetime fields are Neo4j datetime objects; if you send these directly to a JSON API, they may not be serializable. The code currently returns them raw.\
+- Race conditions: when auto-approving inside `get_decision_queue` there is a potential race if other processes mutate the same decision simultaneously. The loop resolves then continues \'97 consider transaction-level locking if you need strict correctness.\
+- Security: storing raw sensitive details in logs/DB could leak secrets. Credentials are in code defaults \'97 avoid committing secrets.\
+\
+Short recommended improvements (low-risk)\
+- Guard driver creation and add `_has_driver()` checks or try/except around `GraphDatabase.driver(...)` so the module can be imported even when Neo4j is not available.\
+- Make `reload_policy()` resilient (try/except, fallback default) and validate schema shape.\
+- Convert Neo4j datetime results to ISO strings before returning to callers (e.g., r["created_at"].isoformat()).\
+- Robustly handle NULL DB fields before json.loads (use `r["tools"] or "[]"` or skip).\
+- Replace `apoc.create.uuid()` usage if APOC may be unavailable; or fall back to server-side `randomUUID()` equivalents or generate UUID in Python (uuid.uuid4()).\
+- Add typed return shapes and docstrings for each method to clarify outputs (especially for API consumers).\
+- Add unit tests + a small integration test that runs against a development Neo4j instance (or a test fixture using `neo4j` test harness).\
+\
+How to run & quick checks\
+- Install required Python packages:\
+\
+pip install -r requirements.txt\
+# or at minimum\
+pip install neo4j pyyaml\
+\
+- Run the script directly to exercise example usage (it will attempt to connect to Neo4j):\
+\
+python3 neo4j_connector.py\
+\
+Expect errors if Neo4j is not running, credentials are wrong, or `pyyaml/neo4j` are missing.\
+\
+- Quick programmatic connection test:\
+\
+python3 - <<'PY'\
+from neo4j_connector import Neo4jConnector\
+c = Neo4jConnector()       # adjust uri/user/password if needed\
+try:\
+    print("policy:", getattr(c,'policy',None))\
+    print("workflow keys:", list(c.load_workflow("workflow_demo").keys()))\
+finally:\
+    c.close()\
+PY\
+\
+Minimal checklist to validate behavior\
+- Neo4j service running & reachable (bolt://localhost:7687).\
+- Credentials match Neo4j user.\
+- APOC installed if you want apoc.create.uuid() to work.\
+- `config/severity_policy.yaml` exists and is valid YAML (or pass an alternate path to `Neo4jConnector(policy_file=...)`).\
+\
+If you want, I can:\
+- Harden `neo4j_connector.py` now to be import-safe (wrap driver init in try/except, add _has_driver checks).\
+- Convert returned datetimes to ISO strings and guard json.loads calls.\
+- Add a small unit/integration test (using a mock or local Neo4j) and run it.\
+\
+Which improvement should I implement next?\
+}

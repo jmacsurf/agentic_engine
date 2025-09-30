@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Agentic Engine Governance Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h1>Agentic Engine Governance Dashboard</h1>
+
+  <!-- DB availability banner -->
+  <div id="dbBanner" style="display:none; padding:10px; background:#ffdddd; border:1px solid #ff8888; margin-bottom:12px;">
+    <strong>Warning:</strong> Database unavailable — some features are in read-only or degraded mode.
+  </div>
+
+  <!-- === Tabs Navigation === -->
+  <div class="tab">
+    <button class="tablinks" onclick="openTab(event, 'Decisions')" id="defaultOpen">Decisions</button>
+    <button class="tablinks" onclick="openTab(event, 'Policy')">Policy</button>
+    <button class="tablinks" onclick="openTab(event, 'History')">History</button>
+    <button class="tablinks" onclick="openTab(event, 'Exports')">Exports</button>
+    <button class="tablinks" onclick="openTab(event, 'Metrics')">Metrics</button>
+  </div>
+
+  <!-- === Tab: Pending Decisions === -->
+  <div id="Decisions" class="tabcontent">
+    <h2>Pending Decisions</h2>
+    <div id="decisions"></div>
+  </div>
+
+  <!-- === Tab: Policy Editor === -->
+  <div id="Policy" class="tabcontent">
+    <h2>Severity Policy Editor</h2>
+    <textarea id="policyEditor" style="width:100%;height:200px;"></textarea><br>
+    <button onclick="savePolicy()">Save Policy</button>
+  </div>
+
+  <!-- === Tab: Policy History === -->
+  <div id="History" class="tabcontent">
+    <h2>Policy Change History</h2>
+    <div id="policyHistory"></div>
+  </div>
+
+  <!-- === Tab: Export Compliance Logs === -->
+  <div id="Exports" class="tabcontent">
+    <h2>Export Compliance Logs</h2>
+    <form onsubmit="exportDecisions(event)">
+      Agent: <input type="text" id="agentFilter">
+      Status:
+      <select id="statusFilter">
+        <option value="">Any</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+      </select>
+      Last Days: <input type="number" id="daysFilter" min="1">
+      Format:
+      <select id="formatFilter">
+        <option value="json">JSON</option>
+        <option value="csv">CSV</option>
+      </select>
+      <button type="submit">Export</button>
+    </form>
+  </div>
+
+  <!-- === Tab: Metrics === -->
+  <div id="Metrics" class="tabcontent">
+    <h2>Live Metrics</h2>
+    <div id="kpis">
+      <p><b>Total Decisions Today:</b> <span id="totalDecisions">0</span></p>
+      <p><b>API Usage:</b> <span id="apiPct">0%</span> (<span id="apiCount">0</span>)</p>
+      <p><b>RPA Usage:</b> <span id="rpaPct">0%</span> (<span id="rpaCount">0</span>)</p>
+      <p><b>Approved:</b> <span id="approvedCount">0</span></p>
+      <p><b>Overridden:</b> <span id="overriddenCount">0</span></p>
+    </div>
+    <canvas id="usageChart" width="400" height="200"></canvas>
+
+    <h3>Trends (Filterable)</h3>
+    <form onsubmit="applyTrendFilters(event)">
+      Agent: <input type="text" id="trendAgent" placeholder="All">
+      Last Days: <input type="number" id="trendDays" value="1" min="1">
+      <button type="submit">Apply</button>
+    </form>
+    <canvas id="successChart" width="400" height="200"></canvas>
+    <canvas id="apiRpaChart" width="400" height="200"></canvas>
+    <canvas id="approvalChart" width="400" height="200"></canvas>
+
+    <div>
+      <button onclick="exportMetricsCSV()">Export Metrics (CSV)</button>
+      <button onclick="exportMetricsPNG('successChart')">Export Success Rate (PNG)</button>
+      <button onclick="exportMetricsPNG('apiRpaChart')">Export API vs RPA (PNG)</button>
+      <button onclick="exportMetricsPNG('approvalChart')">Export Approvals vs Overrides (PNG)</button>
+    </div>
+  </div>
+
+  <!-- === JS Logic === -->
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

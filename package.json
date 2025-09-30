@@ -1,0 +1,26 @@
+{
+  "name": "agentic_engine",
+  "version": "1.0.0",
+  "description": "Self-learning, governable, and auditable agent orchestration system.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jmacsurf/agentic_engine.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jmacsurf/agentic_engine/issues"
+  },
+  "homepage": "https://github.com/jmacsurf/agentic_engine#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "eslint": "^9.36.0",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^16.4.0"
+  }
+}

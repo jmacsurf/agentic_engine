@@ -1,0 +1,154 @@
+/* === General Layout === */
+body {
+  font-family: Arial, sans-serif;
+  margin: 20px;
+  background: #f7f9fb;
+  color: #222;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+h2, h3 {
+  margin-top: 20px;
+  color: #333;
+}
+
+/* === Tabs === */
+.tab {
+  overflow: hidden;
+  border-bottom: 1px solid #ccc;
+  margin-bottom: 15px;
+}
+
+.tab button {
+  background-color: inherit;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 12px 20px;
+  transition: background-color 0.3s;
+  font-weight: bold;
+}
+
+.tab button:hover {
+  background-color: #ddd;
+}
+
+.tab button.active {
+  background-color: #bbb;
+}
+
+.tabcontent {
+  display: none;
+  padding: 15px;
+  border: 1px solid #ccc;
+  border-top: none;
+  background: #fff;
+  border-radius: 0 0 6px 6px;
+}
+
+/* === Decisions === */
+.decision {
+  background: #fff;
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.decision button {
+  margin: 5px 5px 0 0;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.decision button:hover {
+  opacity: 0.85;
+}
+
+.decision button:first-of-type {
+  background-color: #28a745;
+  color: white;
+}
+
+.decision button:not(:first-of-type) {
+  background-color: #dc3545;
+  color: white;
+}
+
+/* === Policy Editor === */
+#policyEditor {
+  font-family: monospace;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+/* === History === */
+#policyHistory pre {
+  background: #eee;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* === Export Forms === */
+form {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+form input, form select, form button {
+  margin: 4px;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+form button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  font-weight: bold;
+}
+
+form button:hover {
+  background-color: #0056b3;
+}
+
+/* === Metrics === */
+#kpis p {
+  margin: 4px 0;
+  font-size: 0.95em;
+}
+
+canvas {
+  margin-top: 15px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+/* === Export Buttons === */
+#Metrics button {
+  margin: 6px;
+  padding: 8px 14px;
+  border-radius: 4px;
+  border: none;
+  background-color: #17a2b8;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#Metrics button:hover {
+  background-color: #117a8b;
+}

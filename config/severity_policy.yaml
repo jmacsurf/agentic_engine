@@ -1,0 +1,46 @@
+# === Agentic Engine Severity Policy ===
+# Defines severity levels and thresholds for automated vs human-in-the-loop approvals
+
+severity_levels:
+  low:
+    description: "Low-risk actions that can be auto-approved"
+    auto_approve: true
+    notify: false
+    max_failure_rate: 0.20   # if failure rate exceeds this, escalate to human
+    min_success_rate: 0.70   # success rate must be at least 70%
+
+  medium:
+    description: "Medium-risk actions, usually safe but require monitoring"
+    auto_approve: false
+    notify: true
+    approval_role: "manager"
+    max_failure_rate: 0.10
+    min_success_rate: 0.80
+
+  high:
+    description: "High-risk actions requiring human oversight"
+    auto_approve: false
+    notify: true
+    approval_role: "admin"
+    max_failure_rate: 0.05
+    min_success_rate: 0.90
+
+decision_rules:
+  # Example: classify steps or tasks into severity levels
+  - match: "data_entry"
+    severity: low
+  - match: "file_upload"
+    severity: medium
+  - match: "financial_transaction"
+    severity: high
+  - match: "api_integration"
+    severity: medium
+  - match: "system_config_change"
+    severity: high
+
+metadata:
+  version: 1.0
+  last_updated: "2025-09-30"
+  owner: "governance-team@example.com"
+
+

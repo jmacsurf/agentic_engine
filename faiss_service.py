@@ -1,5 +1,6 @@
-from flask import Flask, request, jsonify
+
 import faiss, numpy as np
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 dim = 384

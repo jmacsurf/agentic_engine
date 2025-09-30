@@ -1,0 +1,30 @@
+# tools/tools_config.yaml
+# Default configuration for tools discovered by tools/tool_manager.py
+
+tools:
+  api_tool:
+    enabled: true
+    base_url: "https://api.example.com"
+    api_key: ""            # set an API key or leave empty for per-instance config
+    timeout: 30
+
+  rpa_tool:
+    enabled: true
+    headless: true
+    browser: "chromium"    # or "firefox"
+    retry_attempts: 3
+
+  faiss_tool:
+    enabled: false
+    index_path: "./data/faiss.index"
+
+tool_manager:
+  auto_discover: true
+  discovery_path: "tools"
+  register_on_startup: true
+
+logging:
+  level: INFO
+  format: "%(asctime)s [%(levelname)s] %(message)s"
+
+# Add per-environment overrides by providing tools/tools_config.local.yaml

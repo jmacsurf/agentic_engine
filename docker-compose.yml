@@ -4,11 +4,19 @@ services:
     container_name: neo4j
     environment:
       - NEO4J_AUTH=neo4j/testpassword123
+      - NEO4JLABS_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_security_functions_unrestricted=apoc.*
     ports:
       - "7474:7474"
       - "7687:7687"
     volumes:
       - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p testpassword123 'RETURN 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   flask:
     build: .
@@ -21,19 +29,26 @@ services:
     ports:
       - "5050:5000"
     command: >
-      bash -c "pip install --no-cache-dir -r requirements.txt && python web_dashboard.py"
+      bash -lc "python - <<'PY'
+import socket, time, sys
+while True:
+    try:
+        s=socket.socket(); s.settimeout(2); s.connect(('neo4j',7687)); s.close(); break
+    except Exception:
+        print('waiting for neo4j...'); time.sleep(2)
+print('neo4j is reachable, starting app')
+PY
+&& python web_dashboard.py"
     depends_on:
       - neo4j
       - faiss
 
   faiss:
-    image: python:3.11-slim
+    build:
+      context: .
+      dockerfile: Dockerfile.faiss
     container_name: faiss-service
     working_dir: /app
-    volumes:
-      - .:/app
-    command: >
-      bash -c "pip install --no-cache-dir -r requirements.txt && python faiss_service.py"
     ports:
       - "6000:6000"
 
