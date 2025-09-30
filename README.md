@@ -47,3 +47,42 @@ PYTHONPATH=. pytest tests/test_neo4j_integration.py -q
 
 The test will pull a Neo4j image (`neo4j:5.13`) and start a container with credentials `neo4j/test`. The container is stopped automatically after the test.
 
+
+# 🤖 Agentic Engine
+
+The **Agentic Engine** is a next-generation orchestration platform for **digital employees**.  
+It supervises **multiple AI agents and tools** (API + RPA) using a **knowledge graph (Neo4j)**,  
+with **governance, monitoring, and self-learning workflows**.
+
+---
+
+## 🚀 Executive Summary
+
+The Agentic Engine:
+- Mimics **human workflows** across applications, APIs, and UIs.
+- Connects multiple tools (API, RPA, Slack, DB, etc.) into a **choreographed workflow**.
+- Learns over time:
+  - Successful paths are reinforced.
+  - Failing or unused paths decay automatically.
+  - Semantic fallback (via FAISS vectors) discovers new pathways.
+- Provides **real-time governance**:
+  - Human-in-the-loop dashboard for reviewing or approving AI decisions.
+  - **RBAC controls**: Admins approve, viewers observe.
+  - Policies auto-approve low-risk tasks, escalate high-risk tasks.
+- Monitors operations:
+  - Integrated **Prometheus + Grafana** dashboards.
+  - Alerts for failure spikes, KG growth, or scaling events.
+
+**Think of it as your digital workforce supervisor**:  
+reliably delegating, monitoring, and adapting agents to complete real-world business tasks.
+
+---
+
+## 🛠 Developer Setup
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/jmacsurf/agentic_engine.git
+cd agentic_engine
+
