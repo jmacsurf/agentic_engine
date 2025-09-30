@@ -30,15 +30,15 @@ services:
       - "5050:5000"
     command: >
       bash -lc "python - <<'PY'
-import socket, time, sys
-while True:
-    try:
-        s=socket.socket(); s.settimeout(2); s.connect(('neo4j',7687)); s.close(); break
-    except Exception:
-        print('waiting for neo4j...'); time.sleep(2)
-print('neo4j is reachable, starting app')
-PY
-&& python web_dashboard.py"
+        import socket, time, sys
+        while True:
+            try:
+                s=socket.socket(); s.settimeout(2); s.connect(('neo4j',7687)); s.close(); break
+            except Exception:
+                print('waiting for neo4j...'); time.sleep(2)
+        print('neo4j is reachable, starting app')
+      PY
+      && python web_dashboard.py"
     depends_on:
       - neo4j
       - faiss
