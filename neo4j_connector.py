@@ -1,11 +1,15 @@
+from __future__ import annotations
+import json
+import os
+import logging
 from neo4j import GraphDatabase
-import json, yaml, logging, os
 from datetime import datetime
 
 # Configure Python logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 class Neo4jConnector:
+    
     def __init__(
         self,
         uri: str | None = None,
@@ -17,28 +21,24 @@ class Neo4jConnector:
         Neo4jConnector is the bridge between the Agentic Engine and Neo4j.
         Handles workflows, execution traces, decisions, and feedback loops.
         """
-        # Read credentials from environment with sane defaults
-        uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        user = user or os.getenv("NEO4J_USER", "neo4j")
-        password = password or os.getenv("NEO4J_PASSWORD", "test")
+        # initialize connection parameters from args or env
+        self.uri = uri or os.getenv("NEO4J_URI", "bolt://neo4j:7687")
+        self.user = user or os.getenv("NEO4J_USER", "neo4j")
+        self.password = password or os.getenv("NEO4J_PASSWORD", "testpassword123")
         self.policy_file = policy_file
+        self.driver = None
 
-        # Attempt to create driver; mark availability flag
-        self._available = False
         try:
-            self.driver = GraphDatabase.driver(uri, auth=(user, password))
-            # quick sanity check: try to acquire a session but do not run commands
+            self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
+            # Try to call a license procedure if present, but ignore if not available (Community / older servers)
             try:
-                with self.driver.session() as s:
-                    pass
-                self._available = True
-            except Exception:
-                # driver created but cannot connect/authenticate
-                self._available = False
+                with self.driver.session() as session:
+                    session.run("CALL dbms.licenseAgreementDetails()").consume()
+            except Exception as e:
+                logging.info("dbms.licenseAgreementDetails not available or failed: %s -- continuing without license check", e)
         except Exception as e:
-            logging.warning(f"Neo4j driver init failed: {e}")
+            logging.error("Failed to create Neo4j driver: %s", e)
             self.driver = None
-            self._available = False
 
         # Load policy file (does not rely on DB availability)
         self.reload_policy()
@@ -379,6 +379,7 @@ class Neo4jConnector:
                 pass
         except Exception as e:
             logging.warning(f"Failed to decay edges: {e}")
+
 
     def update_edge_feedback(self, from_agent, to_agent, success=True, reinforce=0.1, decay=0.1):
         """Reinforce successful paths, decay failed ones (RL-style)."""
