@@ -1,3 +1,4 @@
+# ...existing code...
 import random
 import uuid
 from datetime import datetime
@@ -28,11 +29,11 @@ def load_sample_data(num_traces=200):
             step += 1
             status = "success" if random.random() > 0.05 else "failed"
             details = {"step": step, "trace_index": t, "ts": datetime.utcnow().isoformat()}
-
-            # save execution trace using connector signature: (trace_id, workflow_id, agent_id, status, details)
+            # connector signature: (trace_id, workflow_id, agent_id, status, details)
             try:
                 neo.save_execution_trace(trace_id, workflow_id, current, status, details)
             except Exception:
+                # fall back to logging if connector method differs
                 try:
                     neo.log_event("trace", f"{trace_id}:{current}:{step}", details)
                 except Exception:
@@ -41,7 +42,8 @@ def load_sample_data(num_traces=200):
             # occasionally simulate a tool call and a tool execution record
             if random.random() < 0.25:
                 tool_name = random.choice(["API_Tool", "RPA_Tool", "DB_Tool"])
-                tool_details = {"tool": tool_name, "latency_ms": random.randint(10, 500), "ok": status == "success"}
+                tool_details = {"tool": tool_name, "latency_ms": random.randint(10,500), "ok": status=="success"}
+                # if connector provides a tool execution save method use it, otherwise log event
                 if hasattr(neo, "save_tool_execution"):
                     try:
                         neo.save_tool_execution(trace_id, current, tool_name, tool_details)
@@ -61,11 +63,11 @@ def load_sample_data(num_traces=200):
                         decision_id=decision_id,
                         agent=current,
                         step=step,
-                        recommendation=random.choice(["use_api", "use_rpa", "manual_review"]),
+                        recommendation=random.choice(["use_api","use_rpa","manual_review"]),
                         tools=["API_Tool"] if random.random() < 0.7 else ["RPA_Tool"],
-                        stats=[{"tool": "API_Tool", "score": random.random()}],
+                        stats=[{"tool":"API_Tool","score":random.random()}],
                         explanations={"note": f"auto decision at step {step}"},
-                        severity=random.choice(["low", "medium", "high"]),
+                        severity=random.choice(["low","medium","high"]),
                         status="pending"
                     )
                 except Exception:
@@ -78,9 +80,9 @@ def load_sample_data(num_traces=200):
             if current == "Reader":
                 next_agent = "Validator"
             elif current == "Validator":
-                next_agent = random.choices(["ERP", "Communicator"], weights=[0.7, 0.3])[0]
+                next_agent = random.choices(["ERP", "Communicator"], weights=[0.7,0.3])[0]
             elif current == "ERP":
-                next_agent = random.choices(["Communicator", None], weights=[0.4, 0.6])[0]
+                next_agent = random.choices(["Communicator", None], weights=[0.4,0.6])[0]
             else:
                 next_agent = None
 
@@ -103,12 +105,13 @@ def load_sample_data(num_traces=200):
             src = random.choice(agents)
             dst = random.choice([a for a in agents if a != src])
             try:
-                neo.add_fallback_edge(src, dst, similarity_score=round(random.random(), 2))
+                neo.add_fallback_edge(src, dst, similarity_score=round(random.random(),2))
             except Exception:
                 pass
 
     neo.close()
 
 if __name__ == "__main__":
-    load_sample_data(200)
+    load_sample_data(500)
     print("Sample dataset loaded into Neo4j.")
+# ...existing code...
