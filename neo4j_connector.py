@@ -3,6 +3,7 @@ import os
 import logging
 import yaml
 import json
+import uuid
 from neo4j import GraphDatabase
 from datetime import datetime
 
@@ -28,9 +29,11 @@ class Neo4jConnector:
         self.password = password or os.getenv("NEO4J_PASSWORD", "testpassword123")
         self.policy_file = policy_file
         self.driver = None
+        self._available = False
 
         try:
             self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
+            self._available = True
             # Try to call a license procedure if present, but ignore if not available (Community / older servers)
             try:
                 with self.driver.session() as session:
@@ -40,6 +43,7 @@ class Neo4jConnector:
         except Exception as e:
             logging.error("Failed to create Neo4j driver: %s", e)
             self.driver = None
+            self._available = False
 
         # Load policy file (does not rely on DB availability)
         self.reload_policy()
