@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, render_template, session, Response
 from datetime import datetime
+import logging
 import yaml, json
-from flask import Flask, jsonify, request, render_template, session, Response
 
 app = Flask(__name__)
 app.secret_key = "super-secret-key"  # replace with secure key in production
@@ -203,6 +203,50 @@ def export_metrics():
             yield ",".join(row) + "\n"
     return Response(generate(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment;filename=metrics.csv"})
+
+# === Tool Usage API ===
+@app.route("/api/tool_usage")
+@admin_required
+def api_tool_usage():
+    result = {"api": 0, "tools": 0, "breakdown": {}}
+    if getattr(neo, "driver", None) is None:
+        return jsonify(result)
+    try:
+        agg = {}
+        with neo.driver.session() as session:
+            # ToolExecution nodes
+            q1 = "MATCH (t:ToolExecution) WHERE exists(t.tool) RETURN t.tool AS tool, count(*) AS cnt"
+            for rec in session.run(q1):
+                tool = rec["tool"] or "unknown"
+                agg[tool] = agg.get(tool, 0) + rec["cnt"]
+
+            # Event entries with tool info
+            q2 = "MATCH (e:Event) WHERE exists(e.details) AND e.details.tool IS NOT NULL RETURN e.details.tool AS tool, count(*) AS cnt"
+            for rec in session.run(q2):
+                tool = rec["tool"] or "unknown"
+                agg[tool] = agg.get(tool, 0) + rec["cnt"]
+
+            # Decision.tools arrays
+            q3 = "MATCH (d:Decision) WHERE exists(d.tools) UNWIND d.tools AS tool RETURN tool AS tool, count(*) AS cnt"
+            for rec in session.run(q3):
+                tool = rec["tool"] or "unknown"
+                agg[tool] = agg.get(tool, 0) + rec["cnt"]
+
+        # classify as API vs Tools (simple rule: name contains 'API' => API)
+        api_total = 0
+        tools_total = 0
+        for tool, cnt in agg.items():
+            is_api = ("api" in (tool or "").lower())
+            if is_api:
+                api_total += cnt
+            else:
+                tools_total += cnt
+            result["breakdown"][tool] = cnt
+        result["api"] = api_total
+        result["tools"] = tools_total
+    except Exception as e:
+        logging.exception("Failed to compute tool usage: %s", e)
+    return jsonify(result)
 
 # === Entrypoint ===
 if __name__ == "__main__":
