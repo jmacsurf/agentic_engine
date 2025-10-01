@@ -10,10 +10,13 @@ def load_sample_data(num_traces=20):
         trace_id = str(uuid.uuid4())
         step = 0
         current = "Reader"
+        # new: provide a workflow_id and use the connector signature (trace_id, workflow_id, agent_id, status, details)
+        workflow_id = "workflow_demo"
         while current:
             step += 1
-            # changed: use save_execution_trace instead of record_execution_trace
-            neo.save_execution_trace(trace_id, current, step, success=True)
+            status = "success"
+            details = {"step": step, "trace_index": t}
+            neo.save_execution_trace(trace_id, workflow_id, current, status, details)
             if current == "Reader":
                 next_agent = "Validator"
             elif current == "Validator":
@@ -21,11 +24,11 @@ def load_sample_data(num_traces=20):
             else:
                 next_agent = None
             current = next_agent
-        # Occasionally add fallback edges
+        # Occasionally add fallback edges using add_fallback_edge(signature: from_agent, to_agent, similarity_score)
         if random.random() < 0.3:
             src = random.choice(agents)
             dst = random.choice([a for a in agents if a != src])
-            neo.stage_fallback_edge(src, dst, trace_id, prob=0.1)
+            neo.add_fallback_edge(src, dst, similarity_score=0.1)
     neo.close()
 
 if __name__ == "__main__":
