@@ -1,289 +1,204 @@
 """
-Enhanced Orchestrator for Tool-Integrated Agentic Choreography Engine
+enhanced_orchestrator.py (Async Version)
 
-This module extends the base choreography system to work with diverse tools
-through the tool agent framework.
+Brain of the Agentic Engine with asyncio support.
+
+Enhancements:
+- Agents can be executed concurrently if multiple branches are active.
+- Tool execution is non-blocking using asyncio + gather().
+- Probabilistic branching still applies, but in async mode.
 """
 
-import time
 import uuid
-from typing import Dict, List, Any, Optional
-from datetime import datetime
-import logging
+import random
+import asyncio
+import numpy as np
+import faiss
+
 from neo4j_connector import Neo4jConnector
-from tool_framework import (
-    BaseToolAgent, ToolRegistry, ToolResult,
-    ToolCapabilities, ToolExecutionError
-)
+from tools.tool_manager import ToolManager
 
-logger = logging.getLogger(__name__)
 
+# =========================================================
+# === ENHANCED ORCHESTRATOR (ASYNC) ======================
+# =========================================================
 class EnhancedOrchestrator:
-    """Enhanced orchestrator that integrates tools with the existing agent system"""
+    def __init__(self):
+        """Initialize orchestrator with Neo4j connector, ToolManager, FAISS index."""
+        self.connector = Neo4jConnector()
+        self.tools = ToolManager()
 
-    def __init__(self, neo4j_connector: Neo4jConnector, faiss_service_url: str):
-        self.neo4j = neo4j_connector
-        self.faiss_url = faiss_service_url
-        self.tool_registry = ToolRegistry()
-        self.execution_history = []
+        # get configured tool names (may be empty)
+        self.tool_names = self.tools.list_tools() or []
 
-    def orchestrate_with_tools(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        """Main orchestration method that integrates tools with agents"""
+        # If no tools configured, use a small fallback so embeddings code has data
+        if not self.tool_names:
+            logger.info("No tools found in ToolManager; using fallback tool names for embeddings")
+            self.tool_names = ["API_Tool", "RPA_Tool"]
 
-        execution_id = str(uuid.uuid4())
-        start_time = time.time()
+        # create embeddings (safe when tool_names is non-empty)
+        self.embeddings = self._embed_tools(self.tool_names)
 
+        # ensure embeddings is non-empty and has correct shape
+        if self.embeddings is None or self.embeddings.size == 0:
+            logger.warning("Embeddings empty; creating a minimal placeholder embedding")
+            self.embeddings = np.zeros((1, 20), dtype="float32")
+            self.tool_names = [self.tool_names[0]]
+
+        dim = int(self.embeddings.shape[1])
         try:
-            logger.info(f"Starting enhanced orchestration for task: {task.get('description', 'Unknown')}")
-
-            # Step 1: Find relevant tools using FAISS
-            relevant_tools = self._find_relevant_tools(task)
-            logger.info(f"Found {len(relevant_tools)} relevant tools")
-
-            # Step 2: Create execution plan
-            execution_plan = self._create_execution_plan(task, relevant_tools)
-            logger.info(f"Created execution plan with {len(execution_plan)} steps")
-
-            # Step 3: Execute plan
-            results = self._execute_plan(execution_plan, task, execution_id)
-
-            # Step 4: Store execution in Neo4j for learning
-            self._store_execution_trace(execution_id, task, results, start_time)
-
-            execution_time = time.time() - start_time
-
-            return {
-                "execution_id": execution_id,
-                "success": all(result.success for result in results),
-                "results": results,
-                "execution_time": execution_time,
-                "tools_used": len(relevant_tools)
-            }
-
+            self.index = faiss.IndexFlatL2(dim)
+            self.index.add(self.embeddings)
         except Exception as e:
-            logger.error(f"Orchestration failed: {e}")
-            execution_time = time.time() - start_time
-            return {
-                "execution_id": execution_id,
-                "success": False,
-                "results": [],
-                "execution_time": execution_time,
-                "error": str(e)
-            }
+            logger.warning("Failed to create FAISS index: %s -- continuing without index", e)
+            self.index = None
 
-    def _find_relevant_tools(self, task: Dict[str, Any]) -> List[BaseToolAgent]:
-        """Find tools relevant to the given task using FAISS"""
+    # =====================================================
+    # === EMBEDDING UTILS (PLACEHOLDER) ==================
+    # =====================================================
+    def _embed(self, text: str):
+        """Simple deterministic embedding stub (keeps size consistent)."""
+        max_len = 20
+        arr = [ord(c) for c in (text or "")[:max_len]]
+        arr += [0] * (max_len - len(arr))
+        return np.array(arr, dtype="float32")
 
-        # First, try to find tools using FAISS vector similarity
-        try:
-            import requests
-
-            faiss_response = requests.post(
-                self.faiss_url,
-                json={"query": task.get("description", "")},
-                timeout=5
-            )
-
-            if faiss_response.status_code == 200:
-                similar_tools = faiss_response.json()
-                # Map FAISS results to tool registry
-                relevant_tools = []
-                for tool_result in similar_tools:
-                    tool = self.tool_registry.get_tool(tool_result["name"])
-                    if tool:
-                        relevant_tools.append(tool)
-                return relevant_tools
-
-        except Exception as e:
-            logger.warning(f"FAISS tool discovery failed: {e}")
-
-        # Fallback: Find tools by capability matching
-        task_type = self._infer_task_type(task)
-        relevant_tools = self.tool_registry.find_tools_by_capability(task_type)
-
-        # Additional filtering by input type
-        if "input_type" in task:
-            relevant_tools = [
-                tool for tool in relevant_tools
-                if task["input_type"] in tool.capabilities.input_types
-            ]
-
-        return relevant_tools
-
-    def _infer_task_type(self, task: Dict[str, Any]) -> str:
-        """Infer the type of task based on content"""
-        description = task.get("description", "").lower()
-
-        # Simple keyword-based inference
-        if any(keyword in description for keyword in ["database", "sql", "query", "data"]):
-            return "data_processing"
-        elif any(keyword in description for keyword in ["api", "web", "http", "rest"]):
-            return "api_integration"
-        elif any(keyword in description for keyword in ["file", "read", "write", "storage"]):
-            return "file_operations"
-        elif any(keyword in description for keyword in ["search", "find", "lookup"]):
-            return "search"
-        else:
-            return "general"
-
-    def _create_execution_plan(self, task: Dict[str, Any], tools: List[BaseToolAgent]) -> List[Dict[str, Any]]:
-        """Create an execution plan for the task"""
-
-        plan = []
-
-        # If we have relevant tools, include them in the plan
-        if tools:
-            for tool in tools:
-                plan.append({
-                    "type": "tool",
-                    "tool_name": tool.name,
-                    "description": f"Execute {tool.description}",
-                    "estimated_time": tool.capabilities.avg_execution_time
-                })
-
-        # Add final agent step if needed
-        plan.append({
-            "type": "agent",
-            "agent_type": "synthesis",
-            "description": "Synthesize results from all tools"
-        })
-
-        return plan
-
-    def _execute_plan(self, plan: List[Dict[str, Any]], task: Dict[str, Any], execution_id: str) -> List[ToolResult]:
-        """Execute the plan and collect results"""
-
-        results = []
-
-        for step in plan:
+    def _embed_tools(self, tool_names):
+        """Return stacked embeddings; return a minimal placeholder if tool_names empty."""
+        if not tool_names:
+            return np.zeros((1, 20), dtype="float32")
+        mats = []
+        for name in tool_names:
             try:
-                if step["type"] == "tool":
-                    result = self._execute_tool_step(step, task, execution_id)
-                else:
-                    result = self._execute_agent_step(step, task, execution_id)
-
-                results.append(result)
-                logger.info(f"Executed step: {step['description']} - Success: {result.success}")
-
-                # Break on first failure if configured
-                if not result.success and task.get("fail_fast", False):
-                    break
-
+                emb = self._embed(name)
+                mats.append(emb.reshape(1, -1))
             except Exception as e:
-                logger.error(f"Step failed: {step['description']} - {e}")
-                results.append(ToolResult(
-                    tool_name=step.get("tool_name", "unknown"),
-                    execution_id=execution_id,
-                    success=False,
-                    output=None,
-                    error_message=str(e)
-                ))
+                logger.warning("Failed to embed tool name %s: %s", name, e)
+        if not mats:
+            return np.zeros((1, 20), dtype="float32")
+        return np.vstack(mats)
 
-        return results
+    # =====================================================
+    # === MAIN ASYNC WORKFLOW RUNNER ======================
+    # =====================================================
+    async def run_workflow(self, workflow_id: str):
+        """Run a workflow asynchronously."""
+        print(f"🚀 Running workflow {workflow_id}")
+        workflow = self.connector.load_workflow(workflow_id)
 
-    def _execute_tool_step(self, step: Dict[str, Any], task: Dict[str, Any], execution_id: str) -> ToolResult:
-        """Execute a single tool step"""
+        if not workflow:
+            print(f"⚠️ No workflow found for {workflow_id}")
+            return
 
-        tool_name = step["tool_name"]
-        tool = self.tool_registry.get_tool(tool_name)
+        current = list(workflow.keys())[0]
+        await self._run_agent_recursive(workflow, current, workflow_id)
 
-        if not tool:
-            raise ToolExecutionError(f"Tool {tool_name} not found")
+    async def _run_agent_recursive(self, workflow, agent_id, workflow_id):
+        """
+        Recursively execute agents.
+        If an agent has multiple next steps, run them concurrently.
+        """
+        agent = workflow[agent_id]
+        print(f"⚡ Executing agent: {agent['name']} ({agent_id})")
 
-        # Validate input
-        if not tool.validate_input(task):
-            raise ToolExecutionError(f"Invalid input for tool {tool_name}")
+        # === Create decision node ===
+        decision_id = f"decision_{uuid.uuid4()}"
+        recommendation = self.recommend_tool(agent)
 
-        # Execute tool
-        start_time = time.time()
-        try:
-            result = tool.execute(task)
-            execution_time = time.time() - start_time
-
-            # Update tool metrics
-            tool.update_metrics(execution_time, result.success)
-
-            return result
-
-        except Exception as e:
-            execution_time = time.time() - start_time
-            logger.error(f"Tool execution failed: {e}")
-
-            return ToolResult(
-                tool_name=tool_name,
-                execution_id=execution_id,
-                success=False,
-                output=None,
-                error_message=str(e),
-                execution_time=execution_time
-            )
-
-    def _execute_agent_step(self, step: Dict[str, Any], task: Dict[str, Any], execution_id: str) -> ToolResult:
-        """Execute a standard agent step (placeholder for now)"""
-
-        # This would integrate with the existing agent system
-        # For now, return a placeholder result
-        return ToolResult(
-            tool_name=step.get("agent_type", "agent"),
-            execution_id=execution_id,
-            success=True,
-            output={"message": "Agent execution completed"},
-            execution_time=0.1
+        self.connector.save_decision(
+            decision_id=decision_id,
+            agent=agent["name"],
+            step=agent["name"],
+            recommendation=recommendation,
+            tools=str(self.tools.list_tools()),
+            stats=[],
+            explanations={"policy": f"Recommended {recommendation} for type {agent['type']}"},
+            severity="medium"
         )
 
-    def _store_execution_trace(self, execution_id: str, task: Dict[str, Any], results: List[ToolResult], start_time: float):
-        """Store execution trace in Neo4j for learning"""
+        # === Execute tool with fallback (async wrapper) ===
+        result = await asyncio.to_thread(self.execute_with_fallback, agent, recommendation, decision_id)
 
-        try:
-            # Create execution node
-            execution_query = """
-            MERGE (e:Execution {id: $execution_id})
-            SET e.description = $task_description,
-                e.timestamp = $timestamp,
-                e.success = $success,
-                e.execution_time = $execution_time
-            """
+        # === Save execution trace ===
+        trace_id = f"trace_{uuid.uuid4()}"
+        self.connector.save_execution_trace(
+            trace_id=trace_id,
+            workflow_id=workflow_id,
+            agent_id=agent_id,
+            status="success" if result["success"] else "failure",
+            details=result
+        )
 
-            self.neo4j.query(execution_query, {
-                "execution_id": execution_id,
-                "task_description": task.get("description", ""),
-                "timestamp": datetime.now().isoformat(),
-                "success": all(r.success for r in results),
-                "execution_time": time.time() - start_time
-            })
+        # === Probabilistic branching ===
+        if agent["next"]:
+            tasks = []
+            for edge in agent["next"]:
+                if random.random() < (edge["probability"] or 0):
+                    tasks.append(self._run_agent_recursive(workflow, edge["target"], workflow_id))
 
-            # Create tool execution nodes and relationships
-            for result in results:
-                tool_query = """
-                MATCH (e:Execution {id: $execution_id})
-                MERGE (t:ToolExecution {id: $tool_execution_id})
-                SET t.tool_name = $tool_name,
-                    t.success = $success,
-                    t.execution_time = $execution_time
-                MERGE (e)-[:USED_TOOL]->(t)
-                """
+            if tasks:
+                await asyncio.gather(*tasks)
 
-                self.neo4j.query(tool_query, {
-                    "execution_id": execution_id,
-                    "tool_execution_id": f"{execution_id}_{result.tool_name}",
-                    "tool_name": result.tool_name,
-                    "success": result.success,
-                    "execution_time": result.execution_time
-                })
+    # =====================================================
+    # === TOOL RECOMMENDATION =============================
+    # =====================================================
+    def recommend_tool(self, agent):
+        """Context-aware tool recommendation."""
+        available = self.tools.list_tools()
 
-        except Exception as e:
-            logger.error(f"Failed to store execution trace: {e}")
+        if agent["type"] == "validation":
+            return "API_Tool" if "API_Tool" in available else random.choice(available)
 
-    def get_system_status(self) -> Dict[str, Any]:
-        """Get current system status and tool information"""
+        elif agent["type"] == "execution":
+            if agent["name"].lower() == "file_upload" and "Selenium_RPA_Tool" in available:
+                return "Selenium_RPA_Tool"
+            return "RPA_Tool" if "RPA_Tool" in available else random.choice(available)
 
-        return {
-            "total_tools": len(self.tool_registry.get_all_tools()),
-            "tool_metadata": self.tool_registry.get_tool_metadata(),
-            "execution_history_count": len(self.execution_history)
-        }
+        elif agent["type"] == "audit":
+            return "API_Tool" if "API_Tool" in available else random.choice(available)
 
-    def add_tool(self, tool: BaseToolAgent):
-        """Add a new tool to the registry"""
-        self.tool_registry.register_tool(tool)
-        logger.info(f"Added new tool: {tool.name}")
+        else:
+            return random.choice(available)
+
+    # =====================================================
+    # === TOOL EXECUTION WITH FALLBACK ====================
+    # =====================================================
+    def execute_with_fallback(self, agent, tool_name, decision_id):
+        """Run tool with fallback (blocking, but async-wrapped by to_thread)."""
+        print(f"🔧 Executing {tool_name} for agent {agent['name']}")
+        result = self.tools.execute(tool_name, {"agent": agent["name"], "step": agent["type"]})
+
+        if result["success"]:
+            self.connector.resolve_decision(decision_id, choice=tool_name, status="approved", resolved_by="policy")
+            return result
+
+        # Fallback logic...
+        for fallback in self.tools.list_tools():
+            if fallback != tool_name:
+                fallback_result = self.tools.execute(fallback, {"agent": agent["name"], "step": agent["type"]})
+                if fallback_result["success"]:
+                    self.connector.resolve_decision(decision_id, choice=fallback, status="approved", resolved_by="fallback")
+                    return fallback_result
+
+        # Vector-based fallback
+        query_vec = self._embed(agent["name"])
+        D, I = self.index.search(np.expand_dims(query_vec, axis=0), k=1)
+        best_match = self.tool_names[I[0][0]]
+        vector_result = self.tools.execute(best_match, {"agent": agent["name"], "step": agent["type"]})
+
+        if vector_result["success"]:
+            self.connector.resolve_decision(decision_id, choice=best_match, status="approved", resolved_by="vector")
+            self.connector.add_fallback_edge(agent["id"], best_match, float(D[0][0]))
+            return vector_result
+
+        self.connector.resolve_decision(decision_id, choice=tool_name, status="rejected", resolved_by="system")
+        return result
+
+
+# =========================================================
+# === MAIN RUNNER =========================================
+# =========================================================
+if __name__ == "__main__":
+    orch = EnhancedOrchestrator()
+    asyncio.run(orch.run_workflow("workflow_demo"))
+

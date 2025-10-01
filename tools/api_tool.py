@@ -13,6 +13,8 @@ import logging
 from urllib.parse import urljoin, urlparse
 import time
 from tool_framework import BaseToolAgent, ToolResult, ToolCapabilities
+import uuid
+from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,6 @@ class APIToolAgent(BaseToolAgent):
 
     def execute(self, task: Dict[str, Any]) -> ToolResult:
         """Execute API operations"""
-        import uuid
 
         start_time = time.time()
         execution_id = str(uuid.uuid4())
@@ -255,3 +256,21 @@ class APIToolAgent(BaseToolAgent):
         """Cleanup session"""
         if hasattr(self, 'session'):
             self.session.close()
+
+# minimal mock APITool for local tests
+class APITool:
+    name = "API_Tool"
+    description = "Mock API tool for testing"
+    capabilities = SimpleNamespace(input_types=["json"], avg_execution_time=0.05)
+
+    def validate_input(self, task):
+        return True
+
+    def execute(self, task):
+        # return a simple result dict expected by orchestrator
+        return {
+            "tool_name": self.name,
+            "success": True,
+            "output": {"id": str(uuid.uuid4()), "input": task},
+            "execution_time": self.capabilities.avg_execution_time
+        }
