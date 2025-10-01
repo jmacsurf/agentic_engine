@@ -1,3 +1,4 @@
+# ...existing code...
 import random
 import uuid
 from neo4j_connector import Neo4jConnector
@@ -11,7 +12,8 @@ def load_sample_data(num_traces=20):
         current = "Reader"
         while current:
             step += 1
-            neo.record_execution_trace(trace_id, current, step, success=True)
+            # changed: use save_execution_trace instead of record_execution_trace
+            neo.save_execution_trace(trace_id, current, step, success=True)
             if current == "Reader":
                 next_agent = "Validator"
             elif current == "Validator":
@@ -29,3 +31,4 @@ def load_sample_data(num_traces=20):
 if __name__ == "__main__":
     load_sample_data(50)
     print("Sample dataset loaded into Neo4j.")
+# ...existing code...

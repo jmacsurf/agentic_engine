@@ -6,7 +6,6 @@ services:
       - NEO4J_AUTH=neo4j/testpassword123
       - NEO4JLABS_PLUGINS=["apoc"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
-      - NEO4J_dbms_security_functions_unrestricted=apoc.*
     ports:
       - "7474:7474"
       - "7687:7687"
