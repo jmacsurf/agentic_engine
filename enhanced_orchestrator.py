@@ -14,6 +14,9 @@ import random
 import asyncio
 import numpy as np
 import faiss
+import logging
+
+logger = logging.getLogger(__name__)
 
 from neo4j_connector import Neo4jConnector
 from tools.tool_manager import ToolManager
