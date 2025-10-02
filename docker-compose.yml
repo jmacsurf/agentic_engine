@@ -1,6 +1,9 @@
+version: "3.8"
+
 services:
   neo4j:
-    image: neo4j:5.14
+    image: neo4j:5.20-community
+    platform: linux/arm64
     container_name: neo4j
     environment:
       - NEO4J_AUTH=neo4j/testpassword123
@@ -12,26 +15,10 @@ services:
     volumes:
       - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p testpassword123 'RETURN 1' >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p testpassword123 \"RETURN 1\" >/dev/null 2>&1"]
       interval: 5s
       timeout: 5s
       retries: 12
-
-  flask:
-    build: .
-    container_name: flask-dashboard
-    environment:
-      - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=testpassword123
-      - FAISS_URL=http://faiss:6000
-    ports:
-      - "5050:5000"
-    command: >
-      bash -lc "until (echo > /dev/tcp/neo4j/7687) >/dev/null 2>&1; do echo 'waiting for neo4j...'; sleep 2; done; echo 'neo4j is reachable, starting app'; python web_dashboard.py"
-    depends_on:
-      - neo4j
-      - faiss
 
   faiss:
     build:
@@ -41,6 +28,26 @@ services:
     working_dir: /app
     ports:
       - "6000:6000"
+
+  flask:
+    build: .
+    platform: linux/arm64
+    container_name: flask-dashboard
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=testpassword123
+      - FAISS_URL=http://faiss:6000
+    ports:
+      - "5050:5000"
+    volumes:
+      - .:/app
+    working_dir: /app
+    depends_on:
+      - neo4j
+      - faiss
+    command: >
+      bash -lc "until (echo > /dev/tcp/neo4j/7687) >/dev/null 2>&1; do echo 'waiting for neo4j...'; sleep 2; done; echo 'neo4j is reachable, starting app'; python web_dashboard.py"
 
 volumes:
   neo4j_data:

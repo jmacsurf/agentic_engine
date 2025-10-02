@@ -227,3 +227,111 @@ if __name__ == "__main__":
         print("⚠️ Invalid action. Use 'migrate', 'rollback', or 'reset'.")
 
     migrator.close()
+
+# =========================================================
+# === AUDIT USE CASE SCHEMA MIGRATION ====================
+# =========================================================
+
+def migrate_audit_schema(driver):
+    """
+    Extend Neo4j schema for Audit use case:
+    - Documents (PDF, Excel, Word)
+    - Statements (Income, Balance, Cash Flow)
+    - LineItems (values in statements)
+    - Rules (compliance checks)
+    - Findings (audit results)
+    """
+    with driver.session() as session:
+        session.run("""
+            // === Constraints ===
+            CREATE CONSTRAINT document_id IF NOT EXISTS
+            FOR (d:Document) REQUIRE d.id IS UNIQUE;
+
+            CREATE CONSTRAINT statement_id IF NOT EXISTS
+            FOR (s:Statement) REQUIRE s.id IS UNIQUE;
+
+            CREATE CONSTRAINT lineitem_id IF NOT EXISTS
+            FOR (l:LineItem) REQUIRE l.id IS UNIQUE;
+
+            CREATE CONSTRAINT rule_id IF NOT EXISTS
+            FOR (r:Rule) REQUIRE r.id IS UNIQUE;
+
+            CREATE CONSTRAINT finding_id IF NOT EXISTS
+            FOR (f:Finding) REQUIRE f.id IS UNIQUE;
+        """)
+
+        print("✅ Audit schema migration completed.")
+
+
+def seed_audit_demo(driver):
+    """
+    Seed sample audit data for demo/testing.
+    """
+    with driver.session() as session:
+        session.run("""
+            CREATE (doc:Document {
+                id: "doc1",
+                name: "Q1_2024_Financials.pdf",
+                type: "pdf",
+                date: date("2024-03-31"),
+                source: "ERP"
+            });
+
+            CREATE (stmt:Statement {
+                id: "stmt1",
+                type: "IncomeStatement",
+                period: "FY2024-Q1"
+            });
+
+            CREATE (li:LineItem {
+                id: "li1",
+                name: "Revenue",
+                value: 1000000,
+                currency: "USD"
+            });
+
+            CREATE (rule:Rule {
+                id: "rule1",
+                description: "Revenue must be non-negative",
+                severity: "high"
+            });
+
+            CREATE (finding:Finding {
+                id: "f1",
+                type: "Violation",
+                message: "Negative revenue detected",
+                status: "open"
+            });
+
+            // === Relationships ===
+            CREATE (doc)-[:CONTAINS]->(stmt);
+            CREATE (stmt)-[:HAS_ITEM]->(li);
+            CREATE (rule)-[:APPLIES_TO]->(li);
+            CREATE (finding)-[:VIOLATES]->(rule);
+            CREATE (finding)-[:FOUND_IN]->(li);
+            CREATE (finding)-[:DOCUMENTED_IN]->(doc);
+        """)
+
+        print("✅ Audit demo data seeded.")
+
+
+# =========================================================
+# === MAIN (extend CLI options) ==========================
+# =========================================================
+if __name__ == "__main__":
+    from neo4j import GraphDatabase
+
+    uri = "bolt://localhost:7687"
+    driver = GraphDatabase.driver(uri, auth=("neo4j", "password"))
+
+    import sys
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "migrate_audit":
+            migrate_audit_schema(driver)
+        elif cmd == "seed_audit":
+            seed_audit_demo(driver)
+        else:
+            print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit]")
+    else:
+        print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit]")

@@ -21,6 +21,22 @@ logger = logging.getLogger(__name__)
 from neo4j_connector import Neo4jConnector
 from tools.tool_manager import ToolManager
 
+# === wire concrete tools (tolerant imports for package vs flat layout) ===
+try:
+    from tools.document_ingest_tool import DocumentIngestTool
+except Exception:
+    from agentic_engine.tools.document_ingest_tool import DocumentIngestTool
+
+try:
+    from tools.audit_validator_tool import AuditValidatorTool
+except Exception:
+    from agentic_engine.tools.audit_validator_tool import AuditValidatorTool
+
+try:
+    from tools.audit_reporter_tool import AuditReporterTool
+except Exception:
+    from agentic_engine.tools.audit_reporter_tool import AuditReporterTool
+
 
 # =========================================================
 # === ENHANCED ORCHESTRATOR (ASYNC) ======================
@@ -31,23 +47,18 @@ class EnhancedOrchestrator:
         self.connector = Neo4jConnector()
         self.tools = ToolManager()
 
-        # get configured tool names (may be empty)
+        # concrete tool instances for ingest -> validate -> report pipeline
+        self.ingest_tool = DocumentIngestTool()
+        self.validator_tool = AuditValidatorTool()
+        self.reporter_tool = AuditReporterTool()
+
+        # FAISS vector search index
         self.tool_names = self.tools.list_tools() or []
-
-        # If no tools configured, use a small fallback so embeddings code has data
-        if not self.tool_names:
-            logger.info("No tools found in ToolManager; using fallback tool names for embeddings")
-            self.tool_names = ["API_Tool", "RPA_Tool"]
-
-        # create embeddings (safe when tool_names is non-empty)
         self.embeddings = self._embed_tools(self.tool_names)
-
-        # ensure embeddings is non-empty and has correct shape
         if self.embeddings is None or self.embeddings.size == 0:
             logger.warning("Embeddings empty; creating a minimal placeholder embedding")
             self.embeddings = np.zeros((1, 20), dtype="float32")
-            self.tool_names = [self.tool_names[0]]
-
+            self.tool_names = [self.tool_names[0] if self.tool_names else "API_Tool"]
         dim = int(self.embeddings.shape[1])
         try:
             self.index = faiss.IndexFlatL2(dim)
@@ -101,13 +112,19 @@ class EnhancedOrchestrator:
         Recursively execute agents.
         If an agent has multiple next steps, run them concurrently.
         """
+        # defensive checks: skip None targets and missing agents in workflow
+        if agent_id is None:
+            logger.debug("Agent target is None — end of branch.")
+            return
+        if agent_id not in workflow:
+            logger.warning("Agent id '%s' not found in workflow — skipping branch.", agent_id)
+            return
         agent = workflow[agent_id]
         print(f"⚡ Executing agent: {agent['name']} ({agent_id})")
 
         # === Create decision node ===
         decision_id = f"decision_{uuid.uuid4()}"
         recommendation = self.recommend_tool(agent)
-
         self.connector.save_decision(
             decision_id=decision_id,
             agent=agent["name"],
@@ -115,12 +132,43 @@ class EnhancedOrchestrator:
             recommendation=recommendation,
             tools=str(self.tools.list_tools()),
             stats=[],
-            explanations={"policy": f"Recommended {recommendation} for type {agent['type']}"},
+            explanations={"policy": f"Recommended {recommendation} for type {agent.get('type')}"},
             severity="medium"
         )
 
-        # === Execute tool with fallback (async wrapper) ===
-        result = await asyncio.to_thread(self.execute_with_fallback, agent, recommendation, decision_id)
+        # === Pipeline wiring: Ingest -> Validate -> Report ===
+        exec_result = None
+        agent_type = agent.get("type", "").lower()
+
+        try:
+            if agent_type in ("ingest", "reader"):
+                # use ingest tool; expect agent to optionally provide file_path
+                params = agent.get("params") or {}
+                file_path = params.get("file_path") or params.get("path") or "/tmp/demo_document.pdf"
+                logger.info("Running DocumentIngestTool for %s", file_path)
+                exec_result = await asyncio.to_thread(self.ingest_tool.ingest_document, file_path, params.get("doc_type", "pdf"), params.get("period", "FY2024-Q1"))
+                # record tool execution
+                self.connector.save_tool_execution(decision_id, agent_id, "DocumentIngestTool", exec_result or {})
+            elif agent_type in ("validation", "validator"):
+                logger.info("Running AuditValidatorTool")
+                exec_result = await asyncio.to_thread(self.validator_tool.validate)
+                # create findings saved via connector inside validator (if implemented)
+                self.connector.save_tool_execution(decision_id, agent_id, "AuditValidatorTool", {"findings_count": len(exec_result) if exec_result is not None else 0})
+            elif agent_type in ("report", "notify", "reporter", "audit_report"):
+                logger.info("Running AuditReporterTool")
+                fmt = agent.get("params", {}).get("format", "markdown")
+                report = await asyncio.to_thread(self.reporter_tool.generate_report, "markdown" if fmt == "markdown" else "json")
+                exec_result = {"report": report}
+                # optionally persist report as an Event or blob node
+                self.connector.log_event("report_generated", f"Report for workflow {workflow_id}", {"agent": agent_id, "format": fmt})
+                self.connector.save_tool_execution(decision_id, agent_id, "AuditReporterTool", {"length": len(report)})
+            else:
+                # fallback to existing tool execution flow (ToolManager)
+                logger.info("Falling back to ToolManager: executing recommended tool %s", recommendation)
+                exec_result = await asyncio.to_thread(self.execute_with_fallback, agent, recommendation, decision_id)
+        except Exception as e:
+            logger.exception("Tool execution failed for agent %s: %s", agent_id, e)
+            exec_result = {"success": False, "error": str(e)}
 
         # === Save execution trace ===
         trace_id = f"trace_{uuid.uuid4()}"
@@ -128,16 +176,30 @@ class EnhancedOrchestrator:
             trace_id=trace_id,
             workflow_id=workflow_id,
             agent_id=agent_id,
-            status="success" if result["success"] else "failure",
-            details=result
+            status="success" if (exec_result and exec_result.get("success", True)) else "failure",
+            details=exec_result or {}
         )
 
-        # === Probabilistic branching ===
-        if agent["next"]:
+        # === Probabilistic branching (unchanged) ===
+        next_edges = agent.get("next") or []
+        if next_edges:
             tasks = []
-            for edge in agent["next"]:
-                if random.random() < (edge["probability"] or 0):
-                    tasks.append(self._run_agent_recursive(workflow, edge["target"], workflow_id))
+            for edge in next_edges:
+                # normalize edge structure
+                if not isinstance(edge, dict):
+                    continue
+                target = edge.get("target")
+                prob = float(edge.get("probability") or 0.0)
+
+                if not target:
+                    logger.debug("Skipping None target for agent %s", agent_id)
+                    continue
+                if target not in workflow:
+                    logger.warning("Skipping branch to unknown agent '%s' from '%s'", target, agent_id)
+                    continue
+
+                if random.random() < prob:
+                    tasks.append(self._run_agent_recursive(workflow, target, workflow_id))
 
             if tasks:
                 await asyncio.gather(*tasks)
@@ -147,21 +209,26 @@ class EnhancedOrchestrator:
     # =====================================================
     def recommend_tool(self, agent):
         """Context-aware tool recommendation."""
-        available = self.tools.list_tools()
+        available = self.tools.list_tools() or []
 
-        if agent["type"] == "validation":
-            return "API_Tool" if "API_Tool" in available else random.choice(available)
+        # defensive fallback when ToolManager returns nothing
+        if not available:
+            logger.warning("No tools available from ToolManager; using fallback tools")
+            available = ["API_Tool", "RPA_Tool"]
 
-        elif agent["type"] == "execution":
-            if agent["name"].lower() == "file_upload" and "Selenium_RPA_Tool" in available:
+        if agent.get("type") == "validation":
+            return "API_Tool" if "API_Tool" in available else available[0]
+
+        if agent.get("type") == "execution":
+            if agent.get("name", "").lower() == "file_upload" and "Selenium_RPA_Tool" in available:
                 return "Selenium_RPA_Tool"
-            return "RPA_Tool" if "RPA_Tool" in available else random.choice(available)
+            return "RPA_Tool" if "RPA_Tool" in available else available[0]
 
-        elif agent["type"] == "audit":
-            return "API_Tool" if "API_Tool" in available else random.choice(available)
+        if agent.get("type") == "audit":
+            return "API_Tool" if "API_Tool" in available else available[0]
 
-        else:
-            return random.choice(available)
+        # default: return first available tool deterministically
+        return available[0]
 
     # =====================================================
     # === TOOL EXECUTION WITH FALLBACK ====================
@@ -196,6 +263,43 @@ class EnhancedOrchestrator:
 
         self.connector.resolve_decision(decision_id, choice=tool_name, status="rejected", resolved_by="system")
         return result
+
+    # =====================================================
+    # === FULL AUDIT PIPELINE =============================
+    # =====================================================
+    async def run_audit_workflow(self, file_path: str, period: str = "FY2024-Q1", output_format: str = "markdown"):
+        """
+        End-to-end audit workflow:
+        1. Ingest document into Neo4j
+        2. Validate line items against rules
+        3. Generate report
+
+        Args:
+            file_path: Path to the document (PDF/Excel) to ingest.
+            period: Reporting period string.
+            output_format: "json" or "markdown".
+
+        Returns:
+            dict with ingest summary, findings, and report.
+        """
+
+        # Step 1: Ingest
+        self.connector.log_event("audit_ingest_start", f"Ingesting {file_path}", {"period": period})
+        ingest_result = await asyncio.to_thread(self.ingest_tool.ingest_document, file_path, "pdf", period)
+
+        # Step 2: Validate
+        self.connector.log_event("audit_validate_start", f"Validating {file_path}", {"period": period})
+        findings = await asyncio.to_thread(self.validator_tool.validate)
+
+        # Step 3: Report
+        self.connector.log_event("audit_report_start", f"Reporting for {file_path}", {"period": period})
+        report = await asyncio.to_thread(self.reporter_tool.generate_report, output_format)
+
+        return {
+            "document": ingest_result,
+            "findings": findings,
+            "report": report
+        }
 
 
 # =========================================================

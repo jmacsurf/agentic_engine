@@ -10,6 +10,8 @@ from datetime import datetime
 # Configure Python logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+logger = logging.getLogger(__name__)
+
 class Neo4jConnector:
     
     def __init__(
@@ -127,43 +129,42 @@ class Neo4jConnector:
     # =====================================================
     # === WORKFLOW MANAGEMENT =============================
     # =====================================================
-    def load_workflow(self, workflow_id):
-        """Load workflow structure dynamically from Neo4j."""
-        query = """
-        MATCH (w:Workflow {id:$workflow_id})-[:CAN_HANDLE]->(a:Agent)
-        OPTIONAL MATCH (a)-[n:NEXT]->(b:Agent)
-        RETURN a.id as agent_id, a.name as name, a.type as type,
-               collect({target:b.id, probability:n.probability, condition:n.condition}) as next_agents
+    def load_workflow(self, workflow_id: str) -> Dict[str, Any]:
         """
+        Try to load agents and NEXT edges from the DB.
+        Returns a dict keyed by agent id with fields: id, name, type, next (list of {target, probability}).
+        If DB not available or empty, return a default demo workflow.
+        """
+        workflow: Dict[str, Any] = {}
+        if not getattr(self, "driver", None):
+            return self._default_workflow()
+
         try:
-            workflow = {}
-            if not getattr(self, "_available", False) or getattr(self, "driver", None) is None:
-                logging.warning("Neo4j unavailable; load_workflow returning empty workflow.")
-                return workflow
             with self.driver.session() as session:
-                results = session.run(query, workflow_id=workflow_id)
-                for r in results:
-                    workflow[r["agent_id"]] = {
-                        "name": r["name"],
-                        "type": r["type"],
-                        "next": [
-                            {
-                                "target": n["target"],
-                                "probability": n.get("probability"),
-                                "condition": n.get("condition"),
-                            }
-                            for n in r["next_agents"] if n["target"] is not None
-                        ],
-                    }
-            try:
-                self.log_event("workflow", f"Loaded workflow {workflow_id}", {"agents": list(workflow.keys())})
-            except Exception:
-                # already logged in log_event; continue
-                pass
+                q = """
+                MATCH (w:Workflow {id:$workflow_id})-[:CAN_HANDLE]->(a:Agent)
+                OPTIONAL MATCH (a)-[r:NEXT]->(b:Agent)
+                RETURN a.id AS id, a.name AS name,
+                       collect(
+                         CASE WHEN b IS NULL THEN NULL
+                              ELSE {
+                                target: b.id,
+                                probability: coalesce(r.probability, 0.1),
+                                condition: CASE WHEN r.condition IS NOT NULL THEN r.condition ELSE '' END
+                              }
+                         END
+                       ) AS next
+                """
+                for rec in session.run(q, workflow_id=workflow_id):
+                    aid = rec.get("id") or rec.get("name")
+                    next_list = [n for n in rec.get("next", []) if n is not None]
+                    workflow[aid] = {"id": aid, "name": rec.get("name") or aid, "type": "generic", "next": next_list}
+            if not workflow:
+                return self._default_workflow()
             return workflow
-        except Exception as e:
-            logging.warning(f"Failed to load workflow {workflow_id}: {e}")
-            return {}
+        except Exception:
+            logger.exception("Failed to load workflow from Neo4j, returning default")
+            return self._default_workflow()
 
     # =====================================================
     # === EXECUTION TRACE MANAGEMENT ======================
@@ -470,3 +471,134 @@ if __name__ == "__main__":
 
     connector.close()
     print("✅ Neo4jConnector test run complete.")
+
+    # =====================================================
+    # === AUDIT: DOCUMENT / STATEMENT / LINEITEM ==========
+    # =====================================================
+    def create_document_node(self, doc_id, name, doc_type, period, source):
+        with self.driver.session() as session:
+            session.run("""
+                MERGE (d:Document {id: $doc_id})
+                SET d.name = $name,
+                    d.type = $doc_type,
+                    d.period = $period,
+                    d.source = $source
+            """, doc_id=doc_id, name=name, doc_type=doc_type, period=period, source=source)
+
+    def create_statement_node(self, stmt_id, stmt_type, period, doc_id):
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (d:Document {id: $doc_id})
+                MERGE (s:Statement {id: $stmt_id})
+                SET s.type = $stmt_type,
+                    s.period = $period
+                MERGE (d)-[:CONTAINS]->(s)
+            """, stmt_id=stmt_id, stmt_type=stmt_type, period=period, doc_id=doc_id)
+
+    def create_lineitem_node(self, li_id, name, value, currency, stmt_id):
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (s:Statement {id: $stmt_id})
+                MERGE (l:LineItem {id: $li_id})
+                SET l.name = $name,
+                    l.value = $value,
+                    l.currency = $currency
+                MERGE (s)-[:HAS_ITEM]->(l)
+            """, li_id=li_id, name=name, value=value, currency=currency, stmt_id=stmt_id)
+
+    # =====================================================
+    # === AUDIT: RULES + FINDINGS =========================
+    # =====================================================
+    def get_all_rules(self):
+        """Return all Rule nodes as dicts."""
+        if not getattr(self, "driver", None):
+            return []
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    "MATCH (r:Rule) RETURN r.id as id, r.description as description, r.severity as severity"
+                )
+                return [dict(record) for record in result]
+        except Exception:
+            logger.exception("Failed to fetch rules from Neo4j")
+            return []
+
+    def get_lineitems_by_name(self, name):
+        """Return LineItem nodes matching name."""
+        if not getattr(self, "driver", None):
+            return []
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    "MATCH (l:LineItem {name: $name}) RETURN l.id as id, l.name as name, l.value as value, l.currency as currency",
+                    name=name,
+                )
+                return [dict(record) for record in result]
+        except Exception:
+            logger.exception("Failed to fetch lineitems for name=%s", name)
+            return []
+
+    def create_finding_node(self, finding_id, finding_type, message, status, rule_id, lineitem_id):
+        """Create a Finding node and link it to the Rule and LineItem."""
+        if not getattr(self, "driver", None):
+            return
+        try:
+            with self.driver.session() as session:
+                session.run(
+                    """
+                    MATCH (r:Rule {id: $rule_id})
+                    MATCH (l:LineItem {id: $lineitem_id})
+                    MERGE (f:Finding {id: $finding_id})
+                    SET f.type = $finding_type,
+                        f.message = $message,
+                        f.status = $status, f.ts = $ts
+                    MERGE (f)-[:VIOLATES]->(r)
+                    MERGE (f)-[:FOUND_IN]->(l)
+                    """,
+                    finding_id=finding_id,
+                    finding_type=finding_type,
+                    message=message,
+                    status=status,
+                    rule_id=rule_id,
+                    lineitem_id=lineitem_id,
+                    ts=datetime.utcnow().isoformat(),
+                )
+        except Exception:
+            logger.exception(
+                "Failed to create finding %s for rule=%s lineitem=%s", finding_id, rule_id, lineitem_id
+            )
+
+    # =====================================================
+    # === AUDIT: FINDINGS RETRIEVAL =======================
+    # =====================================================
+    def get_all_findings(self):
+        """Return all Findings joined with Rule and LineItem metadata."""
+        if not getattr(self, "driver", None):
+            return []
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (f:Finding)-[:VIOLATES]->(r:Rule),
+                          (f)-[:FOUND_IN]->(l:LineItem)
+                    RETURN f.id as id,
+                           f.type as type,
+                           f.message as message,
+                           f.status as status,
+                           r.description as rule,
+                           r.severity as severity,
+                           l.name as lineitem,
+                           l.value as value,
+                           l.currency as currency,
+                           f.ts as ts
+                    """
+                )
+                rows = [dict(record) for record in result]
+                # normalize timestamp values if present
+                for row in rows:
+                    if "ts" in row:
+                        row["ts"] = self._normalize_value(row["ts"])
+                return rows
+        except Exception:
+            logger.exception("Failed to fetch findings from Neo4j")
+            return []
