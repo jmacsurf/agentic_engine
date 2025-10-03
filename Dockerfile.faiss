@@ -14,3 +14,5 @@ COPY . .
 
 EXPOSE 6000
 CMD ["python", "faiss_service.py"]
+
+

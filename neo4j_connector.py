@@ -166,6 +166,34 @@ class Neo4jConnector:
             logger.exception("Failed to load workflow from Neo4j, returning default")
             return self._default_workflow()
 
+    def _default_workflow(self):
+        """Return a default demo workflow when Neo4j is not available."""
+        return {
+            "agent_validator": {
+                "id": "agent_validator",
+                "name": "Validator Agent",
+                "type": "generic",
+                "next": [
+                    {"target": "agent_executor", "probability": 0.8},
+                    {"target": "agent_auditor", "probability": 0.2}
+                ]
+            },
+            "agent_executor": {
+                "id": "agent_executor", 
+                "name": "Executor Agent",
+                "type": "generic",
+                "next": [
+                    {"target": "agent_auditor", "probability": 1.0}
+                ]
+            },
+            "agent_auditor": {
+                "id": "agent_auditor",
+                "name": "Auditor Agent", 
+                "type": "generic",
+                "next": []
+            }
+        }
+
     # =====================================================
     # === EXECUTION TRACE MANAGEMENT ======================
     # =====================================================

@@ -75,7 +75,8 @@ class AuditValidatorTool:
                         })
 
         return findings
-```# filepath: tools/audit_validator_tool.py
+
+# filepath: tools/audit_validator_tool.py
 """
 audit_validator_tool.py
 

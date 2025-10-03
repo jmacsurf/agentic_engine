@@ -9,7 +9,7 @@ Migration utility for Agentic Engine.
 """
 
 from neo4j import GraphDatabase
-from agentic_engine.tools.tool_manager import ToolManager
+from tools.tool_manager import ToolManager
 
 # =========================================================
 # === CONFIGURATION =======================================
@@ -314,6 +314,35 @@ def seed_audit_demo(driver):
 
         print("✅ Audit demo data seeded.")
 
+# =========================================================
+# === LANGGRAPH WORKFLOW SEEDING ==========================
+# =========================================================
+def seed_audit_langgraph_workflow(driver):
+    """
+    Create a simple DAG for audit workflow:
+    Ingest -> Validate -> Report
+    """
+
+    with driver.session() as session:
+        session.run("""
+            // Clear old demo workflow if exists
+            MATCH (w:Workflow {id: "audit_workflow"}) DETACH DELETE w;
+
+            // Create workflow
+            CREATE (w:Workflow {id: "audit_workflow", name: "Audit Workflow"});
+
+            // Agents
+            CREATE (a1:Agent {id: "ingest_agent", name: "Document Ingestor", type: "ingest"});
+            CREATE (a2:Agent {id: "validate_agent", name: "Audit Validator", type: "validation"});
+            CREATE (a3:Agent {id: "report_agent", name: "Audit Reporter", type: "report"});
+
+            // Relationships
+            CREATE (w)-[:STARTS_WITH]->(a1);
+            CREATE (a1)-[:NEXT {probability: 1.0}]->(a2);
+            CREATE (a2)-[:NEXT {probability: 1.0}]->(a3);
+        """)
+
+        print("✅ Seeded Audit LangGraph workflow (Ingest → Validate → Report).")
 
 # =========================================================
 # === MAIN (extend CLI options) ==========================
@@ -335,3 +364,6 @@ if __name__ == "__main__":
             print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit]")
     else:
         print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit]")
+
+        elif cmd == "seed_audit_langgraph":
+    seed_audit_langgraph_workflow(driver)
