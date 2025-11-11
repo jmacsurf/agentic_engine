@@ -1,4 +1,142 @@
+#!/usr/bin/env bash
+# Simple helper to run commands inside the flask container with PYTHONPATH set.
+set -euo pipefail
+
+SERVICE="${1:-flask}"
+shift || true
+
+if [ $# -eq 0 ]; then
+  echo "Usage: $0 [service] -- <command...>"
+  echo "Example: $0 flask -- python /app/tests/test_async_run.py"
+  exit 1
+fi
+
+# If invoked with leading --, adjust
+if [ "$SERVICE" = "--" ]; then
+  SERVICE="flask"
+fi
+
+# if first arg is a service and next arg is --, consume it
+if [ "$1" = "--" ]; then
+  shift
+fi
+
+CMD="$*"
+if [ -z "$CMD" ]; then
+  echo "No command provided"
+  exit 1
+fi
+
+# Run the command inside the container with PYTHONPATH=/app
+docker compose exec -T "$SERVICE" sh -c "PYTHONPATH=/app $CMD"#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE="${1:-flask}"
+shift || true
+
+if [ $# -eq 0 ]; then
+  echo "Usage: $0 [service] -- <command...>"
+  echo "Example: $0 flask -- python /app/tests/test_async_run.py"
+  exit 1
+fi
+
+# if first arg is '--' (no service provided)
+if [ "$SERVICE" = "--" ]; then
+  SERVICE="flask"
+else
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
+fi
+
+CMD="$*"
+if [ -z "$CMD" ]; then
+  echo "No command provided"
+  exit 1
+fi
+
+docker compose exec -T "$SERVICE" sh -c "PYTHONPATH=/app $CMD"#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE="${1:-flask}"
+shift || true
+
+if [ $# -eq 0 ]; then
+  echo "Usage: $0 [service] -- <command...>"
+  echo "Example: $0 flask -- python /app/tests/test_async_run.py"
+  exit 1
+fi
+
+# if first arg is '--' (no service provided)
+if [ "$SERVICE" = "--" ]; then
+  SERVICE="flask"
+else
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
+fi
+
+CMD="$*"
+if [ -z "$CMD" ]; then
+  echo "No command provided"
+  exit 1
+fi
+
+docker compose exec -T "$SERVICE" sh -c "PYTHONPATH=/app $CMD"mkdir -p scripts
+cat > scripts/run_in_container.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE="${1:-flask}"
+shift || true
+
+if [ $# -eq 0 ]; then
+  echo "Usage: $0 [service] -- <command...>"
+  echo "Example: $0 flask -- python /app/tests/test_async_run.py"
+  exit 1
+fi
+
+if [ "$SERVICE" = "--" ]; then
+  SERVICE="flask"
+else
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
+fi
+
+CMD="$*"
+if [ -z "$CMD" ]; then
+  echo "No command provided"
+  exit 1
+fi
+
+docker compose exec -T "$SERVICE" sh -c "PYTHONPATH=/app $CMD"
+SH
+
+cat > README.md <<'MD'
 # Agentic Choreography Engine
+
+Run everything inside Docker to avoid macOS prompts and ensure a consistent environment.
+
+Quick steps:
+1. Build & start services:
+   make rebuild
+
+2. Wait for Neo4j:
+   make wait-neo4j
+
+3. Run DB migration:
+   make migrate
+
+4. Run tests / scripts inside the flask container:
+   make test
+   or:
+   ./scripts/run_in_container.sh flask -- python /app/tests/test_async_run.py
+
+Do NOT execute README.md as a script.
+MD
+
+chmod +x scripts/run_in_container.sh# Agentic Choreography Engine
 
 Self-learning, governable, and auditable agent orchestration system.
 

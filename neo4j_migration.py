@@ -341,29 +341,4 @@ def seed_audit_langgraph_workflow(driver):
             CREATE (a1)-[:NEXT {probability: 1.0}]->(a2);
             CREATE (a2)-[:NEXT {probability: 1.0}]->(a3);
         """)
-
         print("✅ Seeded Audit LangGraph workflow (Ingest → Validate → Report).")
-
-# =========================================================
-# === MAIN (extend CLI options) ==========================
-# =========================================================
-if __name__ == "__main__":
-    from neo4j import GraphDatabase
-
-    uri = "bolt://localhost:7687"
-    driver = GraphDatabase.driver(uri, auth=("neo4j", "password"))
-
-    import sys
-    if len(sys.argv) > 1:
-        cmd = sys.argv[1]
-        if cmd == "migrate_audit":
-            migrate_audit_schema(driver)
-        elif cmd == "seed_audit":
-            seed_audit_demo(driver)
-        else:
-            print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit]")
-    else:
-        print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit]")
-
-        elif cmd == "seed_audit_langgraph":
-    seed_audit_langgraph_workflow(driver)

@@ -1,4 +1,30 @@
-// === Tab Switching ===
+# ...existing code...
+# =========================================================
+# === MAIN (extend CLI options) ==========================
+# =========================================================
+if __name__ == "__main__":
+    from neo4j import GraphDatabase
+    import os
+    import sys
+
+    uri = os.environ.get("NEO4J_URI", "bolt://neo4j:7687")
+    user = os.environ.get("NEO4J_USER", "neo4j")
+    pwd = os.environ.get("NEO4J_PASSWORD", "testpassword123")
+    driver = GraphDatabase.driver(uri, auth=(user, pwd))
+
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "migrate_audit":
+            migrate_audit_schema(driver)
+        elif cmd == "seed_audit":
+            seed_audit_demo(driver)
+        elif cmd == "seed_audit_langgraph":
+            seed_audit_langgraph_workflow(driver)
+        else:
+            print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit|seed_audit_langgraph]")
+    else:
+        print("Usage: python neo4j_migration.py [migrate|seed|migrate_audit|seed_audit|seed_audit_langgraph]")
+# ...existing code..../scripts/run_in_container.sh flask -- python /app/neo4j_migration.py migrate_audit// === Tab Switching ===
 function openTab(evt, tabName) {
   let tabcontent = document.getElementsByClassName("tabcontent");
   for (let i = 0; i < tabcontent.length; i++) {
